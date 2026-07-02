@@ -67,6 +67,7 @@ pub fn request_log(ctrl: &ProxyController, path: &str, body: &Value) -> Value {
 }
 
 /// Forward a JSON request to mimo, streaming the upstream bytes back.
+#[allow(dead_code)]
 pub async fn forward(ctrl: Arc<ProxyController>, upstream_path: &str, body: Value) -> Response {
     let stream_requested = body
         .get("stream")
@@ -130,6 +131,7 @@ pub async fn forward(ctrl: Arc<ProxyController>, upstream_path: &str, body: Valu
 /// Buffer the full upstream response so its body (the model's reply) can be
 /// attached to a `response` log entry, then return it to the caller. Used
 /// only in verbose mode; trades streaming for inspectability.
+#[allow(dead_code)]
 async fn buffered_response_with_log(
     ctrl: &ProxyController,
     path: &str,
