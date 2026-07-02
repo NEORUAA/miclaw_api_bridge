@@ -26,18 +26,22 @@ miclaw_api_bridge logs into your Xiaomi account the same way the official **Xiao
 
 > ⚠️ **Account requirement**: your Xiaomi account must already be approved for miclaw access. If the WebUI shows "需要 miclaw 内测权限" or the proxy returns 401 right after login, the account isn't allowlisted — apply through the official miclaw channel first.
 
-Eight model ids are exposed, all routed through the official Xiaomi PC channel. The first six mirror the current miclaw cloud registry; the last two are short back-compat aliases:
+Eight model ids are exposed, all routed through the official Xiaomi PC channel. The first six are cloud models; the last two are short back-compat aliases. All models verified via live `/v1/chat/completions` and `/v1/responses` tests:
 
-| Model id | Notes |
-|---|---|
-| `xiaomi/mimo` | Multimodal, 256 K context (default) |
-| `xiaomi/mimo-pro` | Reasoning model with `thinking` traces, 256 K context |
-| `xiaomi/mimo-claw-0301` | Claw 0301 reasoning snapshot |
-| `xiaomi/MiniMax-M2.5` | MiniMax M2.5, 128 K context |
-| `xiaomi/kimi-k2.5` | Kimi K2.5 reasoning, 128 K context |
-| `xiaomi/glm-5` | GLM-5, 128 K context |
-| `mimo-omni` | Alias → `xiaomi/mimo` |
-| `mimo-pro` | Alias → `xiaomi/mimo-pro` |
+| Model id | Upstream | Capabilities | Context | Max Output | Notes |
+|---|---|---|---|---|---|
+| `xiaomi/mimo` | `mimo` | text, vision, audio, video, tools, thinking | 64K | — | Multimodal (default) |
+| `xiaomi/mimo-pro` | `mimo-pro` | text, tools, thinking | 256K | 128K | Reasoning model with `thinking` traces |
+| `xiaomi/mimo-claw-0301` | `mimo-pro` | text, tools, thinking | 256K | 128K | Claw 0301 reasoning snapshot |
+| `xiaomi/MiniMax-M2.5` | `MiniMax-M2.5` | text, tools | 128K | 8K | MiniMax M2.5 |
+| `xiaomi/kimi-k2.5` | `kimi-k2.5` | text, tools, thinking | 128K | 8K | Kimi K2.5 reasoning |
+| `xiaomi/glm-5` | `glm-5` | text, tools | 128K | 8K | GLM-5 |
+| `mimo-omni` | `mimo` | — | — | — | Alias → `xiaomi/mimo` |
+| `mimo-pro` | `mimo-pro` | — | — | — | Alias → `xiaomi/mimo-pro` |
+
+> **Upstream mapping**: The "Upstream" column shows the canonical model name returned by the mify backend. For example, `xiaomi/mimo-claw-0301` is routed to `mimo-pro` upstream. The bridge passes `model` through verbatim; the upstream router handles canonicalization.
+
+> **Note**: The client also defines two on-device models (`mimo_vlm`, `vlm` / Qwen3 0.7B) that run locally via the 太一 SDK. These are not exposed through the cloud API bridge.
 
 ## Features
 

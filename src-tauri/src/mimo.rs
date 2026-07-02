@@ -55,53 +55,57 @@ pub struct ModelInfo {
 ///   PC channel 4xxs them (they are normalized inside the app, not upstream).
 pub fn known_models() -> Vec<ModelInfo> {
     vec![
+        // ── Cloud models (via mify / osbotapi channel) ──────────────────────
+        // All verified via live /v1/chat/completions and /v1/responses tests.
+        // "upstream" = model field echoed by the mify backend.
         ModelInfo {
             id: "xiaomi/mimo".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (multimodal, 256K)".into(),
+            family: "multimodal (text+vision+audio+video+tools+thinking, 64K ctx) [upstream: mimo]".into(),
         },
         ModelInfo {
             id: "xiaomi/mimo-pro".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (reasoning, 256K)".into(),
+            family: "reasoning (text+tools+thinking, 256K ctx, 128K out) [upstream: mimo-pro]".into(),
         },
         ModelInfo {
             id: "xiaomi/mimo-claw-0301".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (claw 0301 snapshot)".into(),
+            family: "reasoning snapshot (text+tools+thinking, 256K ctx, 128K out) [upstream: mimo-pro]".into(),
         },
         ModelInfo {
             id: "xiaomi/MiniMax-M2.5".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (MiniMax M2.5)".into(),
+            family: "general (text+tools, 128K ctx, 8K out) [upstream: MiniMax-M2.5]".into(),
         },
         ModelInfo {
             id: "xiaomi/kimi-k2.5".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (Kimi K2.5, reasoning)".into(),
+            family: "reasoning (text+tools+thinking, 128K ctx, 8K out) [upstream: kimi-k2.5]".into(),
         },
         ModelInfo {
             id: "xiaomi/glm-5".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (GLM-5)".into(),
+            family: "general (text+tools, 128K ctx, 8K out) [upstream: glm-5]".into(),
         },
+        // ── Short aliases (resolved upstream by the mify router) ────────────
         ModelInfo {
             id: "mimo-omni".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (multimodal alias → xiaomi/mimo)".into(),
+            family: "alias → xiaomi/mimo [upstream: mimo]".into(),
         },
         ModelInfo {
             id: "mimo-pro".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "chat (reasoning alias → xiaomi/mimo-pro)".into(),
+            family: "alias → xiaomi/mimo-pro [upstream: mimo-pro]".into(),
         },
     ]
 }
