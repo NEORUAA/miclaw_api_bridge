@@ -356,7 +356,8 @@ Not yet. Tracking under [#multi-account](../../issues).
 - [x] Admin password auth for the WebUI control plane
 - [x] API key auth (optional Bearer) on `/v1` endpoints
 - [x] Per-model token usage dashboard
-- [x] OpenWrt ipk packaging
+- [x] OpenWrt ipk packaging (24.10 / opkg)
+- [x] OpenWrt apk packaging (25.12+ / apk-tools v3)
 - [ ] Multi-account support
 - [ ] Optional rate-limit / quota dashboard
 

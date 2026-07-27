@@ -82,18 +82,26 @@ ls -lh "$OUT_DIR/miclaw_api_bridge"
 echo "==> packing deployable bundle (tar.gz)"
 bash "$ROOT/openwrt/pack-bundle.sh" "$OUT_DIR/miclaw_api_bridge"
 
-# --- 5. Build opkg-installable ipk -----------------------------------------
+# --- 5. Build opkg-installable ipk (OpenWrt 24.10 and older) ----------------
 echo "==> building ipk"
 bash "$ROOT/openwrt/build-ipk.sh" "$OUT_DIR/miclaw_api_bridge"
 
+# --- 6. Build apk-installable apk (OpenWrt 25.12+ / main) -------------------
+echo "==> building apk"
+bash "$ROOT/openwrt/build-apk.sh" "$OUT_DIR/miclaw_api_bridge"
+
 echo
-echo "==> done. Two ways to deploy:"
+echo "==> done. Ways to deploy:"
 echo
-echo "  A) opkg package (recommended):"
+echo "  A) opkg package (OpenWrt 24.10 / ImmortalWrt 24.10):"
 echo "     scp $OUT_DIR/luci-app-miclaw_*_aarch64_cortex-a53.ipk root@192.168.1.1:/tmp/"
 echo "     ssh root@192.168.1.1 'opkg install /tmp/luci-app-miclaw_*_aarch64_cortex-a53.ipk'"
 echo
-echo "  B) tarball + installer script:"
+echo "  B) apk package (OpenWrt 25.12+):"
+echo "     scp $OUT_DIR/luci-app-miclaw-*.apk root@192.168.1.1:/tmp/"
+echo "     ssh root@192.168.1.1 'apk add --allow-untrusted /tmp/luci-app-miclaw-*.apk'"
+echo
+echo "  C) tarball + installer script:"
 echo "     scp $OUT_DIR/miclaw_api_bridge_openwrt_aarch64.tar.gz root@192.168.1.1:/tmp/"
 echo "     ssh root@192.168.1.1"
 echo "     cd /tmp && tar -xzf miclaw_api_bridge_openwrt_aarch64.tar.gz && cd miclaw_api_bridge_openwrt && sh install.sh"
