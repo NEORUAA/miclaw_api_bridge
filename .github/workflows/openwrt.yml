@@ -95,12 +95,14 @@ jobs:
 
       # apk-tools v3 provides `apk mkpkg` (APKv3). OpenWrt 25.12+ rejects APKv2.
       # Built from Alpine source so we don't depend on a distro package name.
+      # Pinned to a release tag — master HEAD is a moving target (libapk's
+      # switch to a shared library broke this step once already).
       - name: Install apk-tools (mkpkg)
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y meson ninja-build libssl-dev zlib1g-dev pkg-config git fakeroot
-          git clone --depth 1 https://gitlab.alpinelinux.org/alpine/apk-tools.git /tmp/apk-tools
+          git clone --depth 1 -b v3.0.7 https://gitlab.alpinelinux.org/alpine/apk-tools.git /tmp/apk-tools
           meson setup /tmp/apk-tools/build /tmp/apk-tools \
             -Dminimal=false \
             -Dhelp=disabled \
@@ -111,6 +113,11 @@ jobs:
             --prefix=/usr/local
           ninja -C /tmp/apk-tools/build
           sudo ninja -C /tmp/apk-tools/build install
+          # libapk.so.3 installs to /usr/local/lib/x86_64-linux-gnu, which ld
+          # only resolves via ld.so.cache — and `ninja install` does NOT run
+          # ldconfig. Without this, `apk` exits 127: "libapk.so.3.0.0: cannot
+          # open shared object file".
+          sudo ldconfig
           apk --version
           # help may be disabled; probe applet like build-apk.sh does
           out="$(apk mkpkg 2>&1 || true)"
