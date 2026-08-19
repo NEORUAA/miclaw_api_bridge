@@ -55,6 +55,16 @@ pub async fn messages(
         Err(e) => return map_err(BridgeError::Proxy(e)),
     };
 
+    // Always stream from the upstream (see chat_completions in openai.rs):
+    // a non-streaming mimo response only ships after the full generation,
+    // which regularly outlived the old 30s client timeout. The Anthropic
+    // response shape still follows the client's own `stream` flag.
+    let mut openai_body = openai_body;
+    if let Some(obj) = openai_body.as_object_mut() {
+        obj.insert("stream".into(), Value::Bool(true));
+        obj.insert("stream_options".into(), json!({ "include_usage": true }));
+    }
+
     let model = openai_body
         .get("model")
         .and_then(|v| v.as_str())

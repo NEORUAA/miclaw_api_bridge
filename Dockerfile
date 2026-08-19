@@ -30,7 +30,8 @@ RUN apt-get update \
 ENV MICLAW_API_BRIDGE_DISABLE_KEYRING=1 \
   RUST_LOG=miclaw_api_bridge_lib=info \
   XDG_CONFIG_HOME=/data/config \
-  XDG_DATA_HOME=/data/data
+  XDG_DATA_HOME=/data/data \
+  MALLOC_ARENA_MAX=2
 
 WORKDIR /app
 COPY --from=builder /app/src-tauri/target/release/miclaw_api_bridge /usr/local/bin/miclaw_api_bridge

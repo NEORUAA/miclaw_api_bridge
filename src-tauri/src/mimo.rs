@@ -1,4 +1,4 @@
-use crate::auth::{build_http_client, AuthState};
+use crate::auth::AuthState;
 use crate::error::{BridgeError, Result};
 use bytes::Bytes;
 use futures::stream::BoxStream;
@@ -9,9 +9,16 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// All mimo PC traffic terminates at this host.
 pub const MIMO_HOST: &str = "https://api.miclaw.xiaomi.net";
+
+/// Resolved upstream base URL. `MIMO_HOST_OVERRIDE` exists for integration
+/// tests / mock servers (plain-http upstreams); production leaves it unset.
+fn mimo_host() -> String {
+    std::env::var("MIMO_HOST_OVERRIDE").unwrap_or_else(|_| MIMO_HOST.to_string())
+}
 
 /// PC-style endpoints (observed in macOS miclaw HAR captures). The PC
 /// client speaks plain OpenAI Chat Completions; no device signature, no
@@ -112,11 +119,50 @@ pub fn known_models() -> Vec<ModelInfo> {
 
 pub struct MimoClient {
     auth: Arc<RwLock<AuthState>>,
+    /// One long-lived client for ALL mimo traffic. Previously a fresh client
+    /// was built per request, which meant zero connection reuse (a full
+    /// TCP+TLS handshake + DNS lookup on every call) and constant allocator
+    /// churn (each client loads its own TLS roots / connector / pool) — on
+    /// long-running deployments that showed up as connect stalls and steadily
+    /// growing RSS. The auth token travels in per-request headers, so the
+    /// client itself never needs rebuilding, even across token refreshes.
+    client: reqwest::Client,
+}
+
+/// Total ceiling for one upstream call, generous because streamed
+/// completions legitimately run for minutes (the old blanket 30s timeout
+/// killed any generation slower than that — the dominant source of
+/// "error sending request … 30000ms" failures). Override with
+/// `MIMO_UPSTREAM_TIMEOUT_SECS`; connect has its own much tighter timeout.
+fn upstream_timeout() -> Duration {
+    std::env::var("MIMO_UPSTREAM_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&s| s > 0)
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(600))
+}
+
+fn build_mimo_client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .gzip(true)
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(upstream_timeout())
+        // Dead peers are reaped via keepalive; idle pooled connections are
+        // recycled for 90s so back-to-back requests skip the handshake.
+        .tcp_keepalive(Duration::from_secs(60))
+        .pool_idle_timeout(Duration::from_secs(90))
+        .pool_max_idle_per_host(8)
+        .build()
+        .map_err(BridgeError::from)
 }
 
 impl MimoClient {
-    pub fn new(auth: Arc<RwLock<AuthState>>) -> Self {
-        Self { auth }
+    pub fn new(auth: Arc<RwLock<AuthState>>) -> Result<Self> {
+        Ok(Self {
+            auth,
+            client: build_mimo_client()?,
+        })
     }
 
     pub fn auth_handle(&self) -> Arc<RwLock<AuthState>> {
@@ -201,7 +247,6 @@ impl MimoClient {
 
     async fn post_json_once(&self, path: &str, body: Value) -> Result<reqwest::Response> {
         let session = self.snapshot()?;
-        let (client, _) = build_http_client(&session)?;
         let headers = self.build_headers(&session)?;
         // Diagnostic: cookie shape (lengths only, never values).
         if let Some(c) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
@@ -217,8 +262,9 @@ impl MimoClient {
                 .collect();
             tracing::debug!(target = "mimo", "cookie shape: [{}]", parts.join(", "));
         }
-        let resp = client
-            .request(Method::POST, format!("{MIMO_HOST}{path}"))
+        let resp = self
+            .client
+            .request(Method::POST, format!("{}{path}", mimo_host()))
             .headers(headers)
             .json(&body)
             .send()
@@ -234,9 +280,9 @@ impl MimoClient {
         if session.pass_token.is_none() {
             return Err(BridgeError::NotAuthenticated);
         }
-        // The swap doesn't actually use the dummy first arg.
-        let dummy = reqwest::Client::new();
-        let next = crate::auth::login::swap_to_osbotapi_token(&dummy, session).await?;
+        // The swap doesn't actually use the first arg (it builds its own
+        // jar-less client); pass our shared one to avoid an extra build.
+        let next = crate::auth::login::swap_to_osbotapi_token(&self.client, session).await?;
         let mut guard = self.auth.write();
         guard.session = next;
         Ok(())

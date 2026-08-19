@@ -63,7 +63,20 @@ async fn chat_completions(ctrl: Arc<ProxyController>, body: Value) -> Response {
         super::transport::request_log(&ctrl, crate::mimo::PATH_CHAT, &body),
     );
 
-    match ctrl.mimo.post_json(crate::mimo::PATH_CHAT, body).await {
+    // Always ask mimo for a STREAM, regardless of what the client wants.
+    // The real miclaw PC client works this way: first SSE bytes arrive in
+    // well under a second, whereas a non-streaming upstream holds the
+    // response until the full generation (reasoning included) is done —
+    // routinely tens of seconds, which is what used to trip the old 30s
+    // client timeout. The RESPONSE shape still follows the client's
+    // `stream` flag: non-stream callers get the folded completion.
+    let mut upstream_body = body;
+    if let Some(obj) = upstream_body.as_object_mut() {
+        obj.insert("stream".into(), Value::Bool(true));
+        obj.insert("stream_options".into(), json!({ "include_usage": true }));
+    }
+
+    match ctrl.mimo.post_json(crate::mimo::PATH_CHAT, upstream_body).await {
         Ok(upstream) => {
             let status = upstream.status();
             emit_log(
@@ -1833,7 +1846,7 @@ mod tests {
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
         let auth = Arc::new(parking_lot::RwLock::new(crate::auth::AuthState::default()));
-        let mimo = Arc::new(crate::mimo::MimoClient::new(auth));
+        let mimo = Arc::new(crate::mimo::MimoClient::new(auth).unwrap());
         let emitter = crate::state::LogEmitter::new(Arc::new(crate::state::LogHub::new(16)));
         let dir = std::env::temp_dir().join(format!("mb-openai-{}-{}", std::process::id(), n));
         let storage =

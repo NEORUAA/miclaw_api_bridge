@@ -28,7 +28,7 @@ impl BridgeState {
 
     pub fn with_storage(storage: Arc<Storage>) -> Result<Arc<Self>> {
         let auth = Arc::new(RwLock::new(AuthState::load(&storage)?));
-        let mimo = Arc::new(MimoClient::new(auth.clone()));
+        let mimo = Arc::new(MimoClient::new(auth.clone())?);
         let logs = Arc::new(LogHub::new(500));
         let emitter = LogEmitter::new(logs.clone());
         let security = crate::security::Security::load(storage.clone())?;
@@ -63,8 +63,15 @@ impl BridgeState {
     }
 }
 
+/// Hard ceiling on the approximate total payload size kept in the ring.
+/// With verbose logging on, entries carry full prompt/completion bodies
+/// (hundreds of KB each in the wild), so an entry-count cap alone could
+/// still pin hundreds of MB — this bounds the buffer by bytes instead.
+const LOG_BYTE_CAP: usize = 32 * 1024 * 1024;
+
 pub struct LogHub {
-    rows: Mutex<VecDeque<Value>>,
+    /// (approx. serialized size, payload) — newest first.
+    rows: Mutex<VecDeque<(usize, Value)>>,
     cap: usize,
     tx: broadcast::Sender<Value>,
 }
@@ -80,18 +87,24 @@ impl LogHub {
     }
 
     pub fn push(&self, payload: Value) {
+        // One serialization per entry, at request rate — cheap insurance.
+        let size = payload.to_string().len() + 64;
         {
             let mut rows = self.rows.lock();
-            if rows.len() >= self.cap {
-                rows.pop_back();
+            let mut total: usize = rows.iter().map(|(s, _)| s).sum();
+            while rows.len() >= self.cap || total + size > LOG_BYTE_CAP {
+                match rows.pop_back() {
+                    Some((s, _)) => total -= s,
+                    None => break,
+                }
             }
-            rows.push_front(payload.clone());
+            rows.push_front((size, payload.clone()));
         }
         let _ = self.tx.send(payload);
     }
 
     pub fn snapshot(&self) -> Vec<Value> {
-        self.rows.lock().iter().cloned().collect()
+        self.rows.lock().iter().map(|(_, v)| v.clone()).collect()
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Value> {

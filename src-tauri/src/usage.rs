@@ -15,6 +15,11 @@ use std::sync::Arc;
 const BLOB: &str = "usage";
 const MAX_EVENTS: usize = 200_000;
 const RETAIN_MS: i64 = 31 * 24 * 60 * 60 * 1000;
+/// The blob grows to megabytes over weeks of uptime; rewriting it (and
+/// cloning the whole event vec) on EVERY request used to dominate the
+/// bridge's allocator churn and disk wear. Flush at most this often —
+/// at most a few seconds of stats are lost on an unclean exit.
+const FLUSH_INTERVAL_MS: i64 = 5_000;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct UsageEvent {
@@ -28,6 +33,7 @@ pub struct UsageEvent {
 pub struct UsageStore {
     storage: Arc<Storage>,
     events: Mutex<Vec<UsageEvent>>,
+    last_flush: Mutex<i64>,
 }
 
 fn now_ms() -> i64 {
@@ -44,6 +50,9 @@ impl UsageStore {
         Arc::new(Self {
             storage,
             events: Mutex::new(events),
+            // 0 → the first record after boot flushes immediately, so
+            // low-traffic deployments still see fresh stats on disk.
+            last_flush: Mutex::new(0),
         })
     }
 
@@ -52,33 +61,35 @@ impl UsageStore {
         if prompt == 0 && completion == 0 && total == 0 {
             return;
         }
-        let snapshot = {
-            let mut events = self.events.lock();
-            events.push(UsageEvent {
-                ts: now_ms(),
-                model: if model.is_empty() {
-                    "unknown".to_string()
-                } else {
-                    model.to_string()
-                },
-                prompt,
-                completion,
-                total: if total > 0 {
-                    total
-                } else {
-                    prompt + completion
-                },
-            });
-            let cutoff = now_ms() - RETAIN_MS;
-            events.retain(|e| e.ts >= cutoff);
-            if events.len() > MAX_EVENTS {
-                let drop = events.len() - MAX_EVENTS;
-                events.drain(0..drop);
-            }
-            events.clone()
-        };
-        // Personal-scale volumes; persist synchronously. The write is small.
-        let _ = self.storage.save_blob(BLOB, &snapshot);
+        let mut events = self.events.lock();
+        events.push(UsageEvent {
+            ts: now_ms(),
+            model: if model.is_empty() {
+                "unknown".to_string()
+            } else {
+                model.to_string()
+            },
+            prompt,
+            completion,
+            total: if total > 0 {
+                total
+            } else {
+                prompt + completion
+            },
+        });
+        let cutoff = now_ms() - RETAIN_MS;
+        events.retain(|e| e.ts >= cutoff);
+        if events.len() > MAX_EVENTS {
+            let drop = events.len() - MAX_EVENTS;
+            events.drain(0..drop);
+        }
+        let mut last_flush = self.last_flush.lock();
+        let now = now_ms();
+        if now - *last_flush >= FLUSH_INTERVAL_MS {
+            *last_flush = now;
+            // Serialize straight from the locked vec — no full-clone spike.
+            let _ = self.storage.save_blob(BLOB, &*events);
+        }
     }
 
     /// Bucket usage for a window. `window` ∈ {"1h","1d","7d","30d"}.
