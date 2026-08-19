@@ -128,10 +128,13 @@ jobs:
           set -euo pipefail
           # strip leading 'v' from the tag for the package version (0.1.0 not v0.1.0)
           ver="${GITHUB_REF_NAME#v}"
-          # Non-tag runs: apk pkgver cannot use bare "-dev" (the '-' starts -rN release).
-          # Use underscore form accepted by apk-tools (same idea as Alpine _git / _alpha).
+          # Non-tag runs: apk pkgver only accepts a fixed suffix alphabet
+          # (_alpha/_beta/_pre/_rc and _cvs/_svn/_git/_hg/_p/_r) — "_ci" is
+          # REJECTED by `apk mkpkg` ("package version is invalid"). Use the
+          # Alpine _git<commit-date> convention; numeric, monotonic, valid
+          # for both apk (x.y.z_gitN-rR) and opkg.
           if [ "$ver" = "$GITHUB_REF_NAME" ]; then
-            ver="0.0.0_ci"
+            ver="0.0.0_git$(git log -1 --format=%cd --date=format-local:%Y%m%d%H%M%S)"
           fi
           IPK="luci-app-miclaw_${ver}-1_aarch64_cortex-a53.ipk"
           # OpenWrt APK naming: name-version.apk with version = ver-rRELEASE
