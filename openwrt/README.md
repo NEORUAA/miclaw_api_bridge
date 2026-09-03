@@ -261,7 +261,7 @@ view 会自动检测：如果你通过 `https://` 访问 LuCI，而 bridge 是�
 
 - 手动触发（workflow_dispatch）或 push `v*` tag 时运行；
 - 在 ubuntu runner 上构建 WebUI → 用 `cross` 交叉编译 aarch64-musl → 打 tarball bundle + **同时构建 `.ipk` 与 `.apk`**；
-- CI 会从 Alpine 源码编译带 `mkpkg` 的 apk-tools v3（OpenWrt 同款 APKv3 生成方式）；
+- CI 会从 Alpine 官方 GitHub 镜像下载经过 SHA-256 校验的固定提交，并编译带 `mkpkg` 的 apk-tools v3（OpenWrt 同款 APKv3 生成方式）；
 - 产物上传为 workflow artifact `openwrt-aarch64`（含 `.tar.gz`、`.ipk`、`.apk`）；
 - 若是 tag 触发，三个产物都会附加到对应的 draft Release（和现有 release.yml 同名同 tag，
   追加资产而非覆盖）。包版本号取自 tag（去掉前缀 `v`）。
@@ -322,7 +322,8 @@ bash openwrt/build-apk.sh src-tauri/target/aarch64-unknown-linux-musl/release/mi
   apk 命名：`post-install` / `post-upgrade` / `pre-deinstall` / `post-deinstall`。
 - 版本字段格式：`<ver>-r<release>`（例如 `0.1.0-r1`）；文件名：`luci-app-miclaw-<ver>-r<release>.apk`。
 - 主机没有 `apk mkpkg` 时，脚本会尝试用 Docker 跑 `alpine:edge`；CI 则从
-  [apk-tools](https://gitlab.alpinelinux.org/alpine/apk-tools) 源码编译安装。
+  Alpine 官方 [apk-tools GitHub 镜像](https://github.com/alpinelinux/apk-tools)
+  下载固定、校验过的源码归档后编译安装。
 - **不会**生成 APKv2 手工拼接包——OpenWrt 25.12 会直接报 `v2 package format error`。
 
 环境变量可覆盖（两脚本通用）：`PKG_VERSION`（默认 0.1.0）、`PKG_RELEASE`（默认 1）、

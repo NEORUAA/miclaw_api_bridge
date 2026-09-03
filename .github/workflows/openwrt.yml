@@ -94,16 +94,30 @@ jobs:
           bash openwrt/pack-bundle.sh openwrt/out/miclaw_api_bridge "openwrt/out/$NAME"
 
       # apk-tools v3 provides `apk mkpkg` (APKv3). OpenWrt 25.12+ rejects APKv2.
-      # Built from Alpine source so we don't depend on a distro package name.
-      # Pinned to a release tag — master HEAD is a moving target (libapk's
-      # switch to a shared library broke this step once already).
+      # Build from Alpine's official GitHub mirror so a GitLab outage cannot
+      # block the job. Pin the v3.0.7 commit and verify the source archive.
       - name: Install apk-tools (mkpkg)
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y meson ninja-build libssl-dev zlib1g-dev pkg-config git fakeroot
-          git clone --depth 1 -b v3.0.7 https://gitlab.alpinelinux.org/alpine/apk-tools.git /tmp/apk-tools
-          meson setup /tmp/apk-tools/build /tmp/apk-tools \
+          sudo apt-get install -y curl meson ninja-build libssl-dev zlib1g-dev pkg-config fakeroot
+          apk_tools_dir="$(mktemp -d)"
+          apk_tools_commit="522171e05c72c8a0dd2a9392f053c89196fbdb9b"
+          apk_tools_sha256="4dc7051b7255829eeba77a68a8422889e6e98ffe2cfef50a2a47ef8c0973968c"
+          curl -fL \
+            --retry 5 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            --connect-timeout 20 \
+            --max-time 180 \
+            "https://github.com/alpinelinux/apk-tools/archive/${apk_tools_commit}.tar.gz" \
+            -o "$apk_tools_dir/apk-tools.tar.gz"
+          echo "$apk_tools_sha256  $apk_tools_dir/apk-tools.tar.gz" | sha256sum -c -
+          mkdir "$apk_tools_dir/source"
+          tar -xzf "$apk_tools_dir/apk-tools.tar.gz" \
+            --strip-components=1 \
+            -C "$apk_tools_dir/source"
+          meson setup "$apk_tools_dir/build" "$apk_tools_dir/source" \
             -Dminimal=false \
             -Dhelp=disabled \
             -Ddocs=disabled \
@@ -111,8 +125,8 @@ jobs:
             -Dpython=disabled \
             -Dtests=disabled \
             --prefix=/usr/local
-          ninja -C /tmp/apk-tools/build
-          sudo ninja -C /tmp/apk-tools/build install
+          ninja -C "$apk_tools_dir/build"
+          sudo ninja -C "$apk_tools_dir/build" install
           # libapk.so.3 installs to /usr/local/lib/x86_64-linux-gnu, which ld
           # only resolves via ld.so.cache — and `ninja install` does NOT run
           # ldconfig. Without this, `apk` exits 127: "libapk.so.3.0.0: cannot
