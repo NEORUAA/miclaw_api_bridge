@@ -2,9 +2,9 @@
 
 # miclaw_api_bridge
 
-**Run Xiaomi miclaw's models locally as an OpenAI / Anthropic-compatible endpoint.**
+**Run the MiMo models in Xiaomi Super XiaoAI locally as an OpenAI / Anthropic-compatible endpoint.**
 
-Sign in with a miclaw-permissioned Xiaomi account, then hit `http://127.0.0.1:8765` from any browser, OpenAI client, or Claude-compatible client.
+Sign in with a Xiaomi account that has Super XiaoAI expert-mode quota, then hit `http://127.0.0.1:8765` from any browser, OpenAI client, or Claude-compatible client.
 
 [![Rust](https://img.shields.io/badge/Rust-1.77+-orange?logo=rust)](https://www.rust-lang.org/)
 [![Vue 3](https://img.shields.io/badge/Vue-3-42b883?logo=vue.js)](https://vuejs.org/)
@@ -17,25 +17,29 @@ Sign in with a miclaw-permissioned Xiaomi account, then hit `http://127.0.0.1:87
 
 ## What it does
 
-miclaw_api_bridge logs into your Xiaomi account the same way the official **Xiaomi miclaw** desktop client does, then exposes the resulting `mimo` LLM through familiar local HTTP endpoints:
+miclaw_api_bridge logs into your Xiaomi account using the migrated **Xiaomi HyperConnect / Super XiaoAI** desktop flow, then exposes its MiMo service through familiar local HTTP endpoints:
 
 - `POST /v1/chat/completions` — OpenAI Chat Completions (drop-in for Cline, Cherry Studio, OpenAI SDKs, …)
 - `POST /v1/responses` — OpenAI Responses API (native passthrough when available, Chat Completions compatibility fallback otherwise)
 - `POST /v1/messages` — Anthropic Messages, with full SSE event translation (drop-in for Claude Code and any client honoring `ANTHROPIC_BASE_URL`)
-- `GET /v1/models` — the eight verified model ids
+- `GET /v1/models` — the eleven verified model ids
+- `GET /api/quota` — current membership and official remaining-points snapshot (WebUI control plane)
 
-> ⚠️ **Account requirement**: your Xiaomi account must already be approved for miclaw access. If the WebUI shows "需要 miclaw 内测权限" or the proxy returns 401 right after login, the account isn't allowlisted — apply through the official miclaw channel first.
+> ⚠️ **Account requirement**: the upstream service enforces the Super XiaoAI quota associated with your Xiaomi account. An exhausted or ineligible account can still authenticate but cannot complete model requests.
 
-Eight model ids are exposed, all routed through the official Xiaomi PC channel. The first six are cloud models; the last two are short back-compat aliases. All models verified via live `/v1/chat/completions` and `/v1/responses` tests:
+Eleven model ids are exposed through the migrated Xiaomi PC v2 channel. They were verified with minimal live `/chat/completions` probes on 2026-09-03; the two short `mimo-v2.5*` forms are omitted because the upstream now requires the `xiaomi/` provider prefix for those models.
 
 | Model id | Upstream | Capabilities | Context | Max Output | Notes |
 |---|---|---|---|---|---|
-| `xiaomi/mimo` | `mimo` | text, vision, audio, video, tools, thinking | 64K | — | Multimodal (default) |
-| `xiaomi/mimo-pro` | `mimo-pro` | text, tools, thinking | 256K | 128K | Reasoning model with `thinking` traces |
+| `xiaomi/mimo` | `mimo` | text, vision, tools, thinking | 1M | 128K | Official multimodal route |
+| `xiaomi/mimo-pro` | `mimo-pro` | text, tools, thinking | 1M | 128K | Official default reasoning route |
+| `xiaomi/mimo-v2.5` | `mimo-v2.5` | text, tools | — | — | Provider-qualified v2.5 route |
+| `xiaomi/mimo-v2.5-pro` | `mimo-v2.5-pro` | text, tools, thinking | — | — | Provider-qualified v2.5 reasoning route |
 | `xiaomi/mimo-claw-0301` | `mimo-pro` | text, tools, thinking | 256K | 128K | Claw 0301 reasoning snapshot |
 | `xiaomi/MiniMax-M2.5` | `MiniMax-M2.5` | text, tools | 128K | 8K | MiniMax M2.5 |
 | `xiaomi/kimi-k2.5` | `kimi-k2.5` | text, tools, thinking | 128K | 8K | Kimi K2.5 reasoning |
 | `xiaomi/glm-5` | `glm-5` | text, tools | 128K | 8K | GLM-5 |
+| `mimo` | `mimo` | — | — | — | Alias → `xiaomi/mimo` |
 | `mimo-omni` | `mimo` | — | — | — | Alias → `xiaomi/mimo` |
 | `mimo-pro` | `mimo-pro` | — | — | — | Alias → `xiaomi/mimo-pro` |
 
@@ -53,6 +57,7 @@ Eight model ids are exposed, all routed through the official Xiaomi PC channel. 
 - 🛡 **Admin password** — a first-run setup guards the WebUI control plane (`/api/*`) behind an Argon2-hashed password and cookie session
 - 🪪 **API-key auth** — optionally require `Authorization: Bearer` keys on `/v1`; create and revoke them from the dashboard (only the hash + prefix are stored)
 - 📊 **Per-model usage** — token accounting per model, with windowed (`1h` / `1d` / `7d` / `30d`) charts in the dashboard
+- 🪙 **Official quota** — remaining points, used/total points, reset time, and low/exhausted state in the dashboard
 - 🌐 **Browser WebUI** — the former desktop UI is served at `http://127.0.0.1:8765`
 - 📡 **Live request log** — WebUI streams every proxy hit in real time
 - 🖥 **Optional desktop tray** — no embedded webview window; tray menu only opens WebUI or exits
@@ -69,7 +74,7 @@ Eight model ids are exposed, all routed through the official Xiaomi PC channel. 
    ./miclaw_api_bridge server
    ```
 
-3. Open `http://127.0.0.1:8765` in a browser and sign in with your miclaw-permissioned Xiaomi account.
+3. Open `http://127.0.0.1:8765` in a browser and sign in with your Xiaomi account.
 4. OpenAI / Responses / Anthropic endpoints are available immediately on the same port.
 
 Desktop users can launch `miclaw_api_bridge_desktop` instead. It starts the same local service, opens the WebUI in your default browser, and adds a tray icon with **打开webui** / **退出**.
@@ -272,8 +277,9 @@ cargo test --test smoke_login -- --ignored --nocapture
                        └────────────────────────┬───────────────────┘
                                                 │
                                                 ▼
-                          api.miclaw.xiaomi.net /osbot/pc/llm/v1/...
-                          (Cookie: serviceToken+cUserId, UA: node)
+                          api.miclaw.xiaomi.net /osbot/pc/llm/v2/...
+                          ?bizId=xiaoai_pc&featureId=common&isFirstQuery=false
+                          (Cookie: serviceToken+cUserId+userId, UA: node)
 ```
 
 ### Authentication flow
@@ -283,7 +289,7 @@ cargo test --test smoke_login -- --ignored --nocapture
    → 2FA challenge if required → identity/list, sendTicket, verifyTicket
    ⇒ passToken + cUserId + ssecurity
 
-2. GET  account.xiaomi.com/pass/serviceLogin?sid=osbotapi
+2. GET  account.xiaomi.com/pass/serviceLogin?sid=miclaw
         UA = "miNative PC/...", Cookie = passToken+userId+cUserId+deviceId+uDevId+uLocale+pass_ua
    ⇒ loc + nonce + ssecurity   (nonce extracted from raw JSON to avoid f64 precision loss)
 
@@ -291,8 +297,9 @@ cargo test --test smoke_login -- --ignored --nocapture
         sig = url_encode( base64( sha1("nonce=N&ssecurity") ) )
    ⇒ Set-Cookie: serviceToken=...   (the token mimo accepts)
 
-4. POST api.miclaw.xiaomi.net/osbot/pc/llm/v1/chat/completions
-        Cookie: serviceToken+cUserId, UA: node
+4. POST api.miclaw.xiaomi.net/osbot/pc/llm/v2/chat/completions
+        ?bizId=xiaoai_pc&featureId=common&isFirstQuery=false
+        Cookie: serviceToken+cUserId+userId, UA: node
    ⇒ OpenAI-compatible Chat Completions (SSE when stream=true)
 ```
 
@@ -325,11 +332,11 @@ A 401 from any mimo call triggers a transparent re-run of steps 2–3.
 **Is this a fork of miclaw?**
 No — miclaw_api_bridge is an independent client that speaks the same protocol. No code is copied from the official client.
 
-**Does it work without the official miclaw app installed?**
-Yes. miclaw_api_bridge talks directly to Xiaomi's account and inference endpoints; the desktop client doesn't need to be installed. **Your account does, however, need miclaw access** — without it the inference API returns 401 even with a valid serviceToken.
+**Does it work without Xiaomi HyperConnect installed?**
+Yes. miclaw_api_bridge talks directly to Xiaomi's account, inference, and quota endpoints; the desktop client does not need to be installed. Your account still needs usable Super XiaoAI quota.
 
 **Why does the OAuth flow run twice?**
-Xiaomi mints `serviceToken`s scoped to a specific `sid`. Password login uses `sid=miclaw`, but mimo only accepts tokens minted under `sid=osbotapi`. The second leg swaps the former for the latter using the long-lived `passToken`.
+The first leg authenticates the account and obtains the long-lived `passToken`; the second leg uses it to mint the current `sid=miclaw` `serviceToken` accepted by the migrated PC API.
 
 **Where are my credentials stored?**
 Encrypted in your OS keyring (macOS Keychain / Windows DPAPI / Linux Secret Service). Only the session blob — `passToken / serviceToken / userId / cUserId / ssecurity / nick` — is kept; your password is never persisted. Docker sets `MICLAW_API_BRIDGE_DISABLE_KEYRING=1`, so the session blob is stored in the mounted `/data` volume instead.
@@ -359,7 +366,7 @@ Not yet. Tracking under [#multi-account](../../issues).
 - [x] OpenWrt ipk packaging (24.10 / opkg)
 - [x] OpenWrt apk packaging (25.12+ / apk-tools v3)
 - [ ] Multi-account support
-- [ ] Optional rate-limit / quota dashboard
+- [x] Super XiaoAI remaining-points dashboard
 
 ## Contributing
 

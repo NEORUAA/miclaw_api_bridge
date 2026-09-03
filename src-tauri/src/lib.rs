@@ -1,4 +1,4 @@
-//! miclaw_api_bridge: bridge Xiaomi mimo into local OpenAI/Claude compatible APIs.
+//! miclaw_api_bridge: bridge Super XiaoAI's MiMo into local OpenAI/Claude compatible APIs.
 
 pub mod auth;
 pub mod decode;

@@ -27,7 +27,7 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "Local OpenAI/Claude compatible bridge for Xiaomi mimo",
-    "longDescription": "Sign in with a miclaw-permissioned Xiaomi account and expose mimo LLM as a local OpenAI Chat Completions and Anthropic Messages endpoint.",
+    "longDescription": "Sign in with a Xiaomi account and expose Super XiaoAI MiMo as a local OpenAI Chat Completions and Anthropic Messages endpoint.",
     "macOS": {
       "minimumSystemVersion": "11.0"
     }

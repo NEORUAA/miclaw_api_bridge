@@ -298,7 +298,7 @@ code {
 
 .status-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   border-bottom: 1px solid var(--line);
 }
 
@@ -325,6 +325,14 @@ code {
 strong {
   font-size: 22px;
   line-height: 1.2;
+}
+
+.status-meta {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .panel {

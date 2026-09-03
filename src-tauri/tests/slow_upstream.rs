@@ -69,7 +69,7 @@ async fn slow_nonstream_generation_survives_past_old_timeout() {
     // Mock upstream on an ephemeral port.
     let mock_state = MockState::default();
     let mock_app = Router::new()
-        .route("/osbot/pc/llm/v1/chat/completions", post(mock_chat))
+        .route("/osbot/pc/llm/v2/chat/completions", post(mock_chat))
         .with_state(mock_state.clone());
     let mock_listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let mock_addr = mock_listener.local_addr().unwrap();

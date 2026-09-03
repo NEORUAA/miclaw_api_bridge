@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use miclaw_api_bridge_lib::auth::login::{LoginOutcome, LoginRequest};
 use miclaw_api_bridge_lib::error::{BridgeError, Result};
-use miclaw_api_bridge_lib::mimo::{known_models, AuthSnapshot, ModelInfo};
+use miclaw_api_bridge_lib::mimo::{known_models, AuthSnapshot, ModelInfo, QuotaSnapshot};
 use miclaw_api_bridge_lib::proxy::ProxySnapshot;
 use miclaw_api_bridge_lib::server::{start_http, ServerConfig};
 use miclaw_api_bridge_lib::service::{SendTicketRequest, SetPortRequest, VerifyTicketRequest};
@@ -16,7 +16,7 @@ use std::net::{IpAddr, Ipv4Addr};
 #[command(
     name = "miclaw_api_bridge",
     version,
-    about = "Xiaomi miclaw local API bridge"
+    about = "Super XiaoAI MiMo local API bridge"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -249,6 +249,15 @@ async fn status(base_url: Option<String>) -> Result<()> {
                     "not authenticated".into()
                 }
             );
+            if auth.authenticated {
+                match get_json::<QuotaSnapshot>(&base, "/api/quota").await {
+                    Ok(quota) => println!(
+                        "quota: {}/{} points remaining (used {}, status {})",
+                        quota.points_remaining, quota.points_limit, quota.points_used, quota.status
+                    ),
+                    Err(_) => println!("quota: unavailable"),
+                }
+            }
             Ok(())
         }
         Err(_) => {

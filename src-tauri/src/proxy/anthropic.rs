@@ -1,6 +1,6 @@
 //! Anthropic Messages -> mimo OpenAI Chat Completions bridge.
 //!
-//! mimo PC only exposes `/osbot/pc/llm/v1/chat/completions` (OpenAI Chat
+//! Super XiaoAI PC exposes `/osbot/pc/llm/v2/chat/completions` (OpenAI Chat
 //! Completions, with optional SSE streaming where `delta` carries
 //! `content` / `reasoning_content` / `tool_calls`). This module translates
 //! Anthropic Messages requests into that format and streams the response

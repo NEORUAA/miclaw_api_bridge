@@ -1,7 +1,7 @@
 [package]
 name = "miclaw_api_bridge"
 version = "0.1.0"
-description = "Bridge Xiaomi mimo LLM into local OpenAI / Claude compatible APIs"
+description = "Bridge Super XiaoAI MiMo into local OpenAI / Claude compatible APIs"
 edition = "2021"
 rust-version = "1.77"
 

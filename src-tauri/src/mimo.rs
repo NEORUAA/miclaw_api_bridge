@@ -1,5 +1,6 @@
 use crate::auth::AuthState;
 use crate::error::{BridgeError, Result};
+use crate::storage::Storage;
 use bytes::Bytes;
 use futures::stream::BoxStream;
 use futures::StreamExt;
@@ -20,23 +21,25 @@ fn mimo_host() -> String {
     std::env::var("MIMO_HOST_OVERRIDE").unwrap_or_else(|_| MIMO_HOST.to_string())
 }
 
-/// PC-style endpoints (observed in macOS miclaw HAR captures). The PC
-/// client speaks plain OpenAI Chat Completions; no device signature, no
-/// `userId`/`cUserId` cookies, only `serviceToken`.
-pub const PATH_CHAT: &str = "/osbot/pc/llm/v1/chat/completions";
+/// Xiaomi HyperConnect / Super XiaoAI uses the v2 PC OpenAI transport. The
+/// billing router expects these query parameters on every LLM request.
+pub const PATH_CHAT: &str =
+    "/osbot/pc/llm/v2/chat/completions?bizId=xiaoai_pc&featureId=common&isFirstQuery=false";
 
-/// OpenAI Responses-shaped endpoint. Android captures expose the same suffix
-/// under `/osbot/api`; on PC we optimistically use the parallel `/osbot/pc`
-/// route and let upstream status surface to the caller.
-pub const PATH_RESPONSES: &str = "/osbot/pc/llm/v1/responses";
+/// OpenAI Responses-shaped endpoint on the migrated v2 PC transport.
+pub const PATH_RESPONSES: &str =
+    "/osbot/pc/llm/v2/responses?bizId=xiaoai_pc&featureId=common&isFirstQuery=false";
+
+/// Commercialization quota used by Super XiaoAI's expert-mode UI.
+pub const PATH_QUOTA: &str = "/osbot/pc/user/v2/status?bizId=xiaoai_pc&featureId=common";
 
 /// MCP host service exposed by miclaw PC. Out of scope for the bridge today;
 /// kept here so we don't accidentally collide with it.
 #[allow(dead_code)]
 pub const PATH_MCP_STREAMABLE: &str = "/osbot/pc/mcp/v1/streamable";
 
-/// Default model when callers don't specify one.
-pub const MODEL_DEFAULT: &str = "xiaomi/mimo";
+/// Default model selected by the migrated official desktop client.
+pub const MODEL_DEFAULT: &str = "xiaomi/mimo-pro";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelInfo {
@@ -46,42 +49,51 @@ pub struct ModelInfo {
     pub family: String,
 }
 
-/// Models confirmed to work via the PC `osbotapi` channel. Mirrors the
-/// `mify` cloud registry shipped in the miclaw client (decompiled
-/// `cb.a#f8005b`), with each id re-verified against
-/// `/osbot/pc/llm/v1/chat/completions` by inspecting the upstream `model`
-/// field in the response.
+/// Models confirmed against the migrated v2 PC channel on 2026-09-03. The
+/// official client routes new sessions through `xiaomi/mimo` and
+/// `xiaomi/mimo-pro`; provider-qualified legacy ids remain available.
 ///
 /// Notes:
 /// * The bridge passes `model` through verbatim — the upstream router
 ///   handles canonicalization (`xiaomi/mimo-claw-0301` echoes back as
 ///   `mimo-pro`, the `mimo-omni`/`mimo` aliases echo as `mimo`).
-/// * `mimo-omni` / `mimo-pro` are kept as short back-compat aliases for
-///   existing client configs; both still resolve upstream. The client-side
-///   `mimo-v2.5` / `mimo-v2.5-pro` aliases are intentionally excluded — the
-///   PC channel 4xxs them (they are normalized inside the app, not upstream).
+/// * `mimo`, `mimo-omni`, and `mimo-pro` remain working short aliases.
+/// * The short `mimo-v2.5*` ids are intentionally excluded because v2 rejects
+///   them without a provider; their `xiaomi/`-qualified forms work.
 pub fn known_models() -> Vec<ModelInfo> {
     vec![
-        // ── Cloud models (via mify / osbotapi channel) ──────────────────────
-        // All verified via live /v1/chat/completions and /v1/responses tests.
-        // "upstream" = model field echoed by the mify backend.
+        // ── Models selected by the migrated official client ────────────────
         ModelInfo {
             id: "xiaomi/mimo".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "multimodal (text+vision+audio+video+tools+thinking, 64K ctx) [upstream: mimo]".into(),
+            family: "multimodal (text+vision+tools+thinking, 1M ctx, 128K out) [upstream: mimo]"
+                .into(),
         },
         ModelInfo {
             id: "xiaomi/mimo-pro".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "reasoning (text+tools+thinking, 256K ctx, 128K out) [upstream: mimo-pro]".into(),
+            family: "reasoning (text+tools+thinking, 1M ctx, 128K out) [upstream: mimo-pro]".into(),
         },
+        ModelInfo {
+            id: "xiaomi/mimo-v2.5".into(),
+            object: "model".into(),
+            owned_by: "xiaomi".into(),
+            family: "provider-qualified v2.5 model [upstream: mimo-v2.5]".into(),
+        },
+        ModelInfo {
+            id: "xiaomi/mimo-v2.5-pro".into(),
+            object: "model".into(),
+            owned_by: "xiaomi".into(),
+            family: "provider-qualified v2.5 reasoning model [upstream: mimo-v2.5-pro]".into(),
+        },
+        // ── Legacy provider-qualified ids still accepted by v2 ─────────────
         ModelInfo {
             id: "xiaomi/mimo-claw-0301".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "reasoning snapshot (text+tools+thinking, 256K ctx, 128K out) [upstream: mimo-pro]".into(),
+            family: "legacy reasoning snapshot [upstream: mimo-pro]".into(),
         },
         ModelInfo {
             id: "xiaomi/MiniMax-M2.5".into(),
@@ -93,7 +105,8 @@ pub fn known_models() -> Vec<ModelInfo> {
             id: "xiaomi/kimi-k2.5".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "reasoning (text+tools+thinking, 128K ctx, 8K out) [upstream: kimi-k2.5]".into(),
+            family: "reasoning (text+tools+thinking, 128K ctx, 8K out) [upstream: kimi-k2.5]"
+                .into(),
         },
         ModelInfo {
             id: "xiaomi/glm-5".into(),
@@ -101,7 +114,13 @@ pub fn known_models() -> Vec<ModelInfo> {
             owned_by: "xiaomi".into(),
             family: "general (text+tools, 128K ctx, 8K out) [upstream: glm-5]".into(),
         },
-        // ── Short aliases (resolved upstream by the mify router) ────────────
+        // ── Short aliases accepted by the upstream router ──────────────────
+        ModelInfo {
+            id: "mimo".into(),
+            object: "model".into(),
+            owned_by: "xiaomi".into(),
+            family: "alias → xiaomi/mimo [upstream: mimo]".into(),
+        },
         ModelInfo {
             id: "mimo-omni".into(),
             object: "model".into(),
@@ -117,8 +136,98 @@ pub fn known_models() -> Vec<ModelInfo> {
     ]
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QuotaSnapshot {
+    pub membership_level: u64,
+    pub membership_level_name: Option<String>,
+    pub membership_type: Option<String>,
+    pub membership_expire_at: Option<i64>,
+    pub auto_renewal: Option<bool>,
+    pub points_limit: u64,
+    pub points_used: u64,
+    pub points_remaining: u64,
+    pub usage_ratio: f64,
+    pub quota_reset_at: i64,
+    pub can_upgrade: bool,
+    pub abnormal: bool,
+    pub status: String,
+    pub observed_at: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct QuotaEnvelope {
+    code: i64,
+    data: Option<QuotaData>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QuotaData {
+    level: u64,
+    #[serde(default)]
+    level_name: Option<String>,
+    #[serde(default)]
+    expire_time: Option<i64>,
+    #[serde(default)]
+    auto_renewal: Option<bool>,
+    credit_amount: u64,
+    used_amount: u64,
+    credit_expire_time: i64,
+    can_upgrade: bool,
+    #[serde(default)]
+    abnormal: Option<u8>,
+}
+
+impl QuotaData {
+    fn into_snapshot(self) -> QuotaSnapshot {
+        let points_remaining = self.credit_amount.saturating_sub(self.used_amount);
+        let usage_ratio = if self.credit_amount == 0 {
+            1.0
+        } else {
+            (self.used_amount as f64 / self.credit_amount as f64).min(1.0)
+        };
+        let abnormal = self.abnormal == Some(1);
+        let status = if abnormal {
+            "available"
+        } else if points_remaining == 0 {
+            "exhausted"
+        } else if points_remaining.saturating_mul(5) < self.credit_amount {
+            "low"
+        } else {
+            "available"
+        };
+        let membership_type = match self.level {
+            0 => Some("free"),
+            5_000 => Some("starter"),
+            10_000 => Some("standard"),
+            20_000 => Some("professional"),
+            30_000 => Some("ultimate"),
+            _ => None,
+        }
+        .map(str::to_string);
+
+        QuotaSnapshot {
+            membership_level: self.level,
+            membership_level_name: self.level_name,
+            membership_type,
+            membership_expire_at: self.expire_time,
+            auto_renewal: self.auto_renewal,
+            points_limit: self.credit_amount,
+            points_used: self.used_amount,
+            points_remaining,
+            usage_ratio,
+            quota_reset_at: self.credit_expire_time,
+            can_upgrade: self.can_upgrade,
+            abnormal,
+            status: status.to_string(),
+            observed_at: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+}
+
 pub struct MimoClient {
     auth: Arc<RwLock<AuthState>>,
+    storage: Option<Arc<Storage>>,
     /// One long-lived client for ALL mimo traffic. Previously a fresh client
     /// was built per request, which meant zero connection reuse (a full
     /// TCP+TLS handshake + DNS lookup on every call) and constant allocator
@@ -158,9 +267,10 @@ fn build_mimo_client() -> Result<reqwest::Client> {
 }
 
 impl MimoClient {
-    pub fn new(auth: Arc<RwLock<AuthState>>) -> Result<Self> {
+    pub fn new(auth: Arc<RwLock<AuthState>>, storage: Option<Arc<Storage>>) -> Result<Self> {
         Ok(Self {
             auth,
+            storage,
             client: build_mimo_client()?,
         })
     }
@@ -177,18 +287,13 @@ impl MimoClient {
         Ok(snap)
     }
 
-    /// Headers used by the macOS miclaw client: a `node` UA, a
-    /// `serviceToken + cUserId` cookie pair, JSON content. Everything else
-    /// is decoration. (HAR shows no `userId`, no device signature on PC.)
+    /// Headers accepted by the migrated PC transport: a `node` UA and the
+    /// sid=miclaw serviceToken cookie. Include the account ids when present,
+    /// matching the official client's service-token fetcher.
     fn build_headers(&self, session: &crate::auth::Session) -> Result<HeaderMap> {
-        let token = session
-            .service_token
-            .as_ref()
+        let cookie = session
+            .cookie_header()
             .ok_or(BridgeError::NotAuthenticated)?;
-        let cookie = match &session.c_user_id {
-            Some(c) => format!("serviceToken={token}; cUserId={c}"),
-            None => format!("serviceToken={token}"),
-        };
         let mut h = HeaderMap::new();
         h.insert(
             HeaderName::from_static("user-agent"),
@@ -220,9 +325,8 @@ impl MimoClient {
     /// Forward a JSON body to mimo. Streaming is requested by the JSON body
     /// itself (`"stream": true`); upstream returns SSE in that case.
     ///
-    /// On a 401 we transparently re-run the osbotapi token swap (the mimo
-    /// PC token has a short TTL — minutes — and `passToken` is what's
-    /// long-lived) and replay the request once.
+    /// On a 401 we transparently mint a fresh sid=miclaw serviceToken from
+    /// the long-lived passToken and replay the request once.
     pub async fn post_json(&self, path: &str, body: Value) -> Result<reqwest::Response> {
         let resp = self.post_json_once(path, body.clone()).await?;
         if resp.status() != reqwest::StatusCode::UNAUTHORIZED {
@@ -230,7 +334,7 @@ impl MimoClient {
         }
         tracing::warn!(
             target = "mimo",
-            "{path} got 401, refreshing serviceToken via osbotapi swap"
+            "{path} got 401, refreshing sid=miclaw serviceToken"
         );
         let _ = resp.bytes().await; // drain
         match self.refresh_service_token().await {
@@ -272,19 +376,56 @@ impl MimoClient {
         Ok(resp)
     }
 
-    /// Re-runs the osbotapi swap using the persisted passToken to mint a
-    /// fresh serviceToken. Returns `Err(NotAuthenticated)` if passToken
-    /// itself is gone (forces the user back to a full login).
+    pub async fn get(&self, path: &str) -> Result<reqwest::Response> {
+        let resp = self.get_once(path).await?;
+        if resp.status() != reqwest::StatusCode::UNAUTHORIZED {
+            return Ok(resp);
+        }
+        tracing::warn!(
+            target = "mimo",
+            "{path} got 401, refreshing sid=miclaw serviceToken"
+        );
+        let _ = resp.bytes().await;
+        match self.refresh_service_token().await {
+            Ok(()) => self.get_once(path).await,
+            Err(e) => {
+                tracing::warn!(target = "mimo", "serviceToken refresh failed: {e}");
+                Err(BridgeError::NotAuthenticated)
+            }
+        }
+    }
+
+    async fn get_once(&self, path: &str) -> Result<reqwest::Response> {
+        let session = self.snapshot()?;
+        let headers = self.build_headers(&session)?;
+        self.client
+            .request(Method::GET, format!("{}{path}", mimo_host()))
+            .headers(headers)
+            .send()
+            .await
+            .map_err(BridgeError::from)
+    }
+
+    /// Re-runs the sid=miclaw token mint using the persisted passToken.
+    /// Returns `Err(NotAuthenticated)` when a full login is required.
     async fn refresh_service_token(&self) -> Result<()> {
         let session = self.auth.read().session.clone();
         if session.pass_token.is_none() {
             return Err(BridgeError::NotAuthenticated);
         }
-        // The swap doesn't actually use the first arg (it builds its own
-        // jar-less client); pass our shared one to avoid an extra build.
-        let next = crate::auth::login::swap_to_osbotapi_token(&self.client, session).await?;
+        // The mint doesn't use the first arg today (it builds a jar-less
+        // client); pass our shared client to keep the interface explicit.
+        let next = crate::auth::login::mint_miclaw_service_token(&self.client, session).await?;
         let mut guard = self.auth.write();
         guard.session = next;
+        if let Some(storage) = &self.storage {
+            if let Err(error) = guard.save(storage) {
+                tracing::warn!(
+                    target = "mimo",
+                    "refreshed serviceToken could not be persisted: {error}"
+                );
+            }
+        }
         Ok(())
     }
 
@@ -308,6 +449,28 @@ impl MimoClient {
         self.post_json(PATH_CHAT, body).await
     }
 
+    pub async fn quota(&self) -> Result<QuotaSnapshot> {
+        let response = self.get(PATH_QUOTA).await?;
+        let status = response.status();
+        if !status.is_success() {
+            let _ = response.bytes().await;
+            return Err(BridgeError::Proxy(format!(
+                "quota endpoint returned {status}"
+            )));
+        }
+        let envelope: QuotaEnvelope = response.json().await?;
+        if envelope.code != 0 {
+            return Err(BridgeError::Proxy(format!(
+                "quota endpoint returned code {}",
+                envelope.code
+            )));
+        }
+        envelope
+            .data
+            .map(QuotaData::into_snapshot)
+            .ok_or_else(|| BridgeError::Proxy("quota endpoint returned no data".into()))
+    }
+
     pub fn quick_status(&self) -> AuthSnapshot {
         let auth = self.auth.read();
         AuthSnapshot {
@@ -325,4 +488,58 @@ pub struct AuthSnapshot {
     pub nick: Option<String>,
     pub user_id: Option<String>,
     pub refreshed_at: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quota_snapshot_matches_official_remaining_and_low_threshold() {
+        let snapshot = QuotaData {
+            level: 20_000,
+            level_name: Some("加强".into()),
+            expire_time: Some(1_796_140_799_999),
+            auto_renewal: Some(false),
+            credit_amount: 34_000,
+            used_amount: 28_000,
+            credit_expire_time: 1_790_870_399_999,
+            can_upgrade: false,
+            abnormal: None,
+        }
+        .into_snapshot();
+
+        assert_eq!(snapshot.points_remaining, 6_000);
+        assert_eq!(snapshot.membership_type.as_deref(), Some("professional"));
+        assert_eq!(snapshot.status, "low");
+    }
+
+    #[test]
+    fn quota_snapshot_clamps_overspend_to_zero() {
+        let snapshot = QuotaData {
+            level: 0,
+            level_name: None,
+            expire_time: None,
+            auto_renewal: None,
+            credit_amount: 100,
+            used_amount: 120,
+            credit_expire_time: 1,
+            can_upgrade: true,
+            abnormal: Some(0),
+        }
+        .into_snapshot();
+
+        assert_eq!(snapshot.points_remaining, 0);
+        assert_eq!(snapshot.usage_ratio, 1.0);
+        assert_eq!(snapshot.status, "exhausted");
+    }
+
+    #[test]
+    fn migrated_model_manifest_includes_provider_qualified_v25_ids() {
+        let ids: Vec<String> = known_models().into_iter().map(|model| model.id).collect();
+        assert!(ids.contains(&"xiaomi/mimo-v2.5".to_string()));
+        assert!(ids.contains(&"xiaomi/mimo-v2.5-pro".to_string()));
+        assert!(!ids.contains(&"mimo-v2.5".to_string()));
+        assert!(!ids.contains(&"mimo-v2.5-pro".to_string()));
+    }
 }

@@ -28,7 +28,7 @@ impl BridgeState {
 
     pub fn with_storage(storage: Arc<Storage>) -> Result<Arc<Self>> {
         let auth = Arc::new(RwLock::new(AuthState::load(&storage)?));
-        let mimo = Arc::new(MimoClient::new(auth.clone())?);
+        let mimo = Arc::new(MimoClient::new(auth.clone(), Some(storage.clone()))?);
         let logs = Arc::new(LogHub::new(500));
         let emitter = LogEmitter::new(logs.clone());
         let security = crate::security::Security::load(storage.clone())?;

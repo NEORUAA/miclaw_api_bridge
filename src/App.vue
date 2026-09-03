@@ -148,7 +148,7 @@ watchEffect(() => {
       </div>
       <p class="section-number">01</p>
       <h1>{{ pageTitle }}</h1>
-      <p class="hero-copy">将 Xiaomi miclaw 模型转接成本地 OpenAI / Anthropic 兼容端点。</p>
+      <p class="hero-copy">将超级小爱中的 Xiaomi MiMo 模型转接成本地 OpenAI / Anthropic 兼容端点。</p>
     </section>
 
     <main class="content">

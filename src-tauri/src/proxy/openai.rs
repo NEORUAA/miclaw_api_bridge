@@ -1846,7 +1846,7 @@ mod tests {
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
         let auth = Arc::new(parking_lot::RwLock::new(crate::auth::AuthState::default()));
-        let mimo = Arc::new(crate::mimo::MimoClient::new(auth).unwrap());
+        let mimo = Arc::new(crate::mimo::MimoClient::new(auth, None).unwrap());
         let emitter = crate::state::LogEmitter::new(Arc::new(crate::state::LogHub::new(16)));
         let dir = std::env::temp_dir().join(format!("mb-openai-{}-{}", std::process::id(), n));
         let storage =

@@ -26,6 +26,23 @@ export interface ModelInfo {
   family: string;
 }
 
+export interface QuotaSnapshot {
+  membership_level: number;
+  membership_level_name: string | null;
+  membership_type: string | null;
+  membership_expire_at: number | null;
+  auto_renewal: boolean | null;
+  points_limit: number;
+  points_used: number;
+  points_remaining: number;
+  usage_ratio: number;
+  quota_reset_at: number;
+  can_upgrade: boolean;
+  abnormal: boolean;
+  status: "available" | "low" | "exhausted";
+  observed_at: number;
+}
+
 export interface AdminSession {
   configured: boolean;
   authenticated: boolean;
@@ -100,6 +117,7 @@ export const api = {
   proxyStatus: () => request<ProxySnapshot>("/api/proxy/status"),
   setProxyPort: (port: number) => post<ProxySnapshot>("/api/settings/port", { port }),
   listModels: () => request<ModelInfo[]>("/api/models"),
+  quota: () => request<QuotaSnapshot>("/api/quota"),
   getVerboseLogs: () => request<{ enabled: boolean }>("/api/logs/verbose"),
   setVerboseLogs: (enabled: boolean) =>
     post<{ enabled: boolean }>("/api/logs/verbose", { enabled }),

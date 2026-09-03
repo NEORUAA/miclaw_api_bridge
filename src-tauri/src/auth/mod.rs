@@ -18,23 +18,20 @@ pub mod two_factor;
 pub const DEFAULT_USER_AGENT: &str =
     "Dalvik/2.1.0 (Linux; U; Android 16; 2509FPN0BC Build/BP2A.250605.031.A3)";
 
-/// User-Agent used by the macOS miclaw build when it asks passport for the
-/// `osbotapi` serviceToken. Captured from a real client HAR — the value is
-/// only needed for the sts swap, mimo runtime calls use plain `node`.
+/// User-Agent used when asking Xiaomi Passport for the PC serviceToken. The
+/// value only needs to identify a native PC client; inference calls use the
+/// lightweight `node` user agent used by the official client transport.
 pub const PC_USER_AGENT: &str = "miNative PC/Normal(Apple Mac16,10) Darwin/25.6.0 SDKV/0.0.1 MK/TWFjLW1pbmkubGFu L/zh-CN DEVT/UEM= DEVS/TWFj BRA/QXBwbGU= APP/Xiaomi miclaw APPV/0.0.1-beta.114+a3e3203f Chrome/144.0.7559.111";
 
-/// `sid` used by the macOS miclaw client when it talks to passport's
-/// `mi-sso-api/sts` endpoint. The serviceToken minted with this sid is
-/// scoped to `api.miclaw.xiaomi.net` and is what mimo requests carry.
-///
-/// First-step login (password + 2FA) uses a different sid (e.g. `miclaw`)
-/// because `osbotapi` doesn't accept the auth2 form.
-pub const OSBOTAPI_SID: &str = "osbotapi";
+/// Business `sid` used by Xiaomi HyperConnect / Super XiaoAI for LLM and
+/// quota requests. Older miclaw builds used an `osbotapi` token here; the
+/// migrated client explicitly discards that cached token and mints `miclaw`.
+pub const MICLAW_SID: &str = "miclaw";
 
 /// `sid` used for the password / 2FA leg. Verified empirically against the
 /// reference KMP project and our own logs.
 pub fn sid() -> String {
-    std::env::var("MIMO_BRIDGE_SID").unwrap_or_else(|_| "miclaw".to_string())
+    std::env::var("MIMO_BRIDGE_SID").unwrap_or_else(|_| MICLAW_SID.to_string())
 }
 
 /// Compatibility constant — prefer `sid()`.

@@ -152,13 +152,13 @@ onMounted(refreshAuth);
         <p class="section-number">03</p>
         <div>
           <h2>令牌流程</h2>
-          <p>桥接器会自动完成 osbotapi serviceToken 换取。</p>
+          <p>桥接器会自动换取超级小爱使用的 miclaw serviceToken。</p>
         </div>
       </div>
       <ol>
-        <li><span>01</span><strong>sid=miclaw</strong><p>密码登录与二步验证。</p></li>
-        <li><span>02</span><strong>sid=osbotapi</strong><p>用 passToken 换服务令牌。</p></li>
-        <li><span>03</span><strong>mimo PC</strong><p>本地代理携带 serviceToken 请求。</p></li>
+        <li><span>01</span><strong>账号认证</strong><p>密码登录与二步验证。</p></li>
+        <li><span>02</span><strong>sid=miclaw</strong><p>用 passToken 换服务令牌。</p></li>
+        <li><span>03</span><strong>超级小爱 v2</strong><p>本地代理携带 serviceToken 请求。</p></li>
       </ol>
     </aside>
   </section>

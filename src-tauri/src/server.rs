@@ -185,6 +185,7 @@ pub fn router(state: Arc<BridgeState>) -> Router {
         .route("/api/proxy/status", get(api_proxy_status))
         .route("/api/settings/port", post(api_set_port))
         .route("/api/models", get(api_models))
+        .route("/api/quota", get(api_quota))
         .route("/api/logs", get(api_logs))
         .route(
             "/api/logs/verbose",
@@ -512,6 +513,10 @@ async fn api_set_port(
 
 async fn api_models(State(_state): State<Arc<BridgeState>>) -> Response {
     Json(crate::service::list_models()).into_response()
+}
+
+async fn api_quota(State(state): State<Arc<BridgeState>>) -> Response {
+    json_result(crate::service::quota(&state).await)
 }
 
 async fn api_logs(State(state): State<Arc<BridgeState>>) -> Response {

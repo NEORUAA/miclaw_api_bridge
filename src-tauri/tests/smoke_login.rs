@@ -143,7 +143,7 @@ async fn smoke_chat(session: &Session) -> Result<()> {
         "messages": [{"role": "user", "content": "ping, reply with pong only"}],
     });
     let resp = client
-        .post("https://api.miclaw.xiaomi.net/osbot/pc/llm/v1/chat/completions")
+        .post("https://api.miclaw.xiaomi.net/osbot/pc/llm/v2/chat/completions?bizId=xiaoai_pc&featureId=common&isFirstQuery=false")
         .header("user-agent", "node")
         .header("accept", "*/*")
         .header("cookie", cookie)

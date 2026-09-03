@@ -194,9 +194,9 @@ pub async fn login(
     }
     let session = parse_session_fields(&body);
     // Skip the auth2 location (it points at a sid=login-sid sts that 401s).
-    // The osbotapi swap is the only redirect we actually need to follow,
-    // and it uses the passToken from the body directly.
-    let session = swap_to_osbotapi_token(&client, session).await?;
+    // Mint the same sid=miclaw serviceToken used by the migrated Super XiaoAI
+    // desktop client. The passToken from the auth response is long-lived.
+    let session = mint_miclaw_service_token(&client, session).await?;
 
     {
         let mut guard = state.write();
@@ -220,7 +220,7 @@ pub fn md5_upper(input: &str) -> String {
 
 pub(crate) fn parse_session_fields(body: &Value) -> Session {
     let pluck_str = |k: &str| body.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
-    // userId comes back as a JSON number in some flows (e.g. sid=osbotapi
+    // userId comes back as a JSON number in some serviceLogin flows
     // returns `"userId": 1125349315`) and as a string in others, so accept
     // either form.
     let pluck_str_or_num = |k: &str| {
@@ -268,15 +268,12 @@ pub(crate) async fn finalize_with_location(
     Ok(session)
 }
 
-/// After the password/2FA leg succeeds we hold a `serviceToken` minted with
-/// the login sid (e.g. `miclaw`/`xiaomihome`), but the mimo PC API only
-/// accepts a token minted with `sid=osbotapi`. Replay `serviceLogin` with
-/// that sid using the passToken cookie we already have, then walk the
-/// resulting redirect chain to capture the new serviceToken.
+/// Mint the `sid=miclaw` serviceToken used by Xiaomi HyperConnect / Super
+/// XiaoAI. Replay `serviceLogin` with the passToken obtained during login,
+/// then walk the redirect chain to capture the scoped serviceToken.
 ///
-/// The macOS miclaw Electron build uses a strict two-phase flow extracted
-/// from `dist-electron/libs/xiaomi/service-token-manager.js`:
-///   Phase 1: GET pass/serviceLogin?sid=osbotapi WITH the standard cookies
+/// The official Electron build uses a strict two-phase flow:
+///   Phase 1: GET pass/serviceLogin?sid=miclaw WITH the standard cookies
 ///            → parse loc / nonce / ssecurity
 ///   Phase 2: GET <loc>&clientSign=<sig> WITHOUT any cookies
 ///            where sig = url_encode(base64(sha1("nonce=N&ssecurity")))
@@ -285,19 +282,18 @@ pub(crate) async fn finalize_with_location(
 /// nonce MUST be extracted from the RAW JSON response (not from parsed
 /// JSON), otherwise JSON.parse / serde-json would silently truncate the
 /// large integer to f64 precision.
-pub(crate) async fn swap_to_osbotapi_token(
+pub(crate) async fn mint_miclaw_service_token(
     _client: &Client,
     mut session: Session,
 ) -> Result<Session> {
     let pass_token = session
         .pass_token
         .as_ref()
-        .ok_or_else(|| BridgeError::Login("missing passToken before osbotapi swap".into()))?
+        .ok_or_else(|| BridgeError::Login("missing passToken before miclaw token mint".into()))?
         .clone();
     tracing::debug!(
         target = "auth",
-        "osbotapi swap: passToken head8={:?} len={} hasV1Prefix={}",
-        &pass_token.chars().take(8).collect::<String>(),
+        "miclaw token mint: passToken len={} hasV1Prefix={}",
         pass_token.len(),
         pass_token.starts_with("V1:")
     );
@@ -331,11 +327,11 @@ pub(crate) async fn swap_to_osbotapi_token(
     // ---------- Phase 1 ----------
     let phase1_url = format!(
         "https://account.xiaomi.com/pass/serviceLogin?_locale=zh_CN&_snsNone=true&sid={}&_json=true",
-        super::OSBOTAPI_SID
+        super::MICLAW_SID
     );
     tracing::debug!(
         target = "auth",
-        "osbotapi phase1 GET {phase1_url} (cookie_keys={})",
+        "miclaw phase1 GET {phase1_url} (cookie_keys={})",
         cookie
             .split(';')
             .map(|s| s.split('=').next().unwrap_or("").trim())
@@ -350,7 +346,7 @@ pub(crate) async fn swap_to_osbotapi_token(
         .await?;
     if !resp.status().is_success() {
         return Err(BridgeError::Login(format!(
-            "osbotapi phase1 status {}",
+            "miclaw phase1 status {}",
             resp.status()
         )));
     }
@@ -358,7 +354,7 @@ pub(crate) async fn swap_to_osbotapi_token(
     let body: Value = serde_json::from_str(strip_prefix(&raw_text)).map_err(|e| {
         let preview: String = raw_text.chars().take(400).collect();
         BridgeError::Login(format!(
-            "osbotapi phase1 parse: {e} (body[..400]={preview:?})"
+            "miclaw phase1 parse: {e} (body[..400]={preview:?})"
         ))
     })?;
     let code = body.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
@@ -369,13 +365,13 @@ pub(crate) async fn swap_to_osbotapi_token(
             .unwrap_or("")
             .to_string();
         return Err(BridgeError::Login(format!(
-            "osbotapi phase1 code={code} desc={desc}"
+            "miclaw phase1 code={code} desc={desc}"
         )));
     }
     let location = body
         .get("location")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| BridgeError::Login("osbotapi phase1 missing location".into()))?
+        .ok_or_else(|| BridgeError::Login("miclaw phase1 missing location".into()))?
         .to_string();
     let ssecurity = body
         .get("ssecurity")
@@ -385,20 +381,20 @@ pub(crate) async fn swap_to_osbotapi_token(
     // Extract nonce from the RAW response (JSON.parse loses precision on
     // the very large integer Xiaomi uses for nonce).
     let nonce = extract_raw_number(strip_prefix(&raw_text), "nonce")
-        .ok_or_else(|| BridgeError::Login("osbotapi phase1 missing nonce".into()))?;
+        .ok_or_else(|| BridgeError::Login("miclaw phase1 missing nonce".into()))?;
     tracing::debug!(
         target = "auth",
-        "osbotapi phase1 ok: hasLocation=true ssecurityLen={} nonce={}",
+        "miclaw phase1 ok: hasLocation=true ssecurityLen={} nonce={}",
         ssecurity.len(),
         nonce
     );
 
     // Refresh field set from this response — userId/ssecurity/etc. land here.
-    let osbot_seed = parse_session_fields(&body);
-    if let Some(uid) = osbot_seed.user_id {
+    let miclaw_seed = parse_session_fields(&body);
+    if let Some(uid) = miclaw_seed.user_id {
         session.user_id = Some(uid);
     }
-    if let Some(cid) = osbot_seed.c_user_id {
+    if let Some(cid) = miclaw_seed.c_user_id {
         session.c_user_id = Some(cid);
     }
     if !ssecurity.is_empty() {
@@ -424,7 +420,7 @@ pub(crate) async fn swap_to_osbotapi_token(
     let phase2_url = format!("{location}{sep}clientSign={signature_url}");
     tracing::debug!(
         target = "auth",
-        "osbotapi phase2 GET (clientSign computed; len={})",
+        "miclaw phase2 GET (clientSign computed; len={})",
         signature_b64.len()
     );
 
@@ -482,12 +478,12 @@ pub(crate) async fn swap_to_osbotapi_token(
     }
     let token = found_token.ok_or_else(|| {
         BridgeError::Login(format!(
-            "osbotapi phase2 returned no serviceToken (status={phase2_status})"
+            "miclaw phase2 returned no serviceToken (status={phase2_status})"
         ))
     })?;
     tracing::debug!(
         target = "auth",
-        "osbotapi serviceToken acquired, len={}",
+        "miclaw serviceToken acquired, len={}",
         token.len()
     );
     session.service_token = Some(token);

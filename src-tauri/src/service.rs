@@ -1,7 +1,7 @@
 use crate::auth;
 use crate::auth::login::{LoginOutcome, LoginRequest};
 use crate::error::{BridgeError, Result};
-use crate::mimo::{known_models, AuthSnapshot, ModelInfo};
+use crate::mimo::{known_models, AuthSnapshot, ModelInfo, QuotaSnapshot};
 use crate::proxy::ProxySnapshot;
 use crate::state::BridgeState;
 use serde::{Deserialize, Serialize};
@@ -25,6 +25,10 @@ pub struct SetPortRequest {
 
 pub async fn auth_status(state: &Arc<BridgeState>) -> Result<AuthSnapshot> {
     Ok(state.mimo.quick_status())
+}
+
+pub async fn quota(state: &Arc<BridgeState>) -> Result<QuotaSnapshot> {
+    state.mimo.quota().await
 }
 
 pub async fn login(state: &Arc<BridgeState>, req: LoginRequest) -> Result<LoginOutcome> {

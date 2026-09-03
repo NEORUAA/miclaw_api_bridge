@@ -198,11 +198,9 @@ pub async fn verify_ticket(
         session_seed.ssecurity.is_some(),
         session_seed.nick,
     );
-    // The auth2 location goes to a sid=miclaw-scoped sts that 401s us; skip
-    // it entirely. swap_to_osbotapi_token re-issues serviceLogin with sid=
-    // osbotapi using the passToken we already have, and that's what mimo
-    // actually accepts.
-    let session = super::login::swap_to_osbotapi_token(&transport.client, session_seed).await?;
+    // Re-issue serviceLogin with the passToken so the final token exactly
+    // matches the migrated desktop client's sid=miclaw business session.
+    let session = super::login::mint_miclaw_service_token(&transport.client, session_seed).await?;
     tracing::debug!(
         target = "auth",
         "final session: hasUserId={} hasCUserId={} hasPassToken={} hasServiceToken={} authenticated={}",
