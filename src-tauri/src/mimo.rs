@@ -49,14 +49,19 @@ pub struct ModelInfo {
     pub family: String,
 }
 
-/// Models confirmed against the migrated v2 PC channel on 2026-09-03. The
-/// official client routes new sessions through `xiaomi/mimo` and
-/// `xiaomi/mimo-pro`; provider-qualified legacy ids remain available.
+/// Static discovery catalog, not a model allowlist. Original entries were
+/// probed on 2026-09-03; MiMo v2.6 and DeepSeek v4 text chat was verified
+/// through the OpenWrt bridge on 2026-09-26.
+/// Capabilities and limits summarize official provider documentation linked
+/// in README.md; they are not verified Super XiaoAI channel limits. Routes
+/// without a matching public specification are labeled as client presets.
 ///
 /// Notes:
-/// * The bridge passes `model` through verbatim — the upstream router
-///   handles canonicalization (`xiaomi/mimo-claw-0301` echoes back as
-///   `mimo-pro`, the `mimo-omni`/`mimo` aliases echo as `mimo`).
+/// * The bridge passes submitted `model` values through verbatim. Unlisted
+///   ids may work; availability and canonicalization are decided upstream.
+/// * `xiaomi/mimo-pro` returned `mimo-v2.5-pro` on 2026-09-26; selecting
+///   v2.6 requires an explicit `xiaomi/mimo-v2.6-flash` or `-pro` id.
+/// * DeepSeek v4 requires the `deepseek/` provider prefix, not `xiaomi/`.
 /// * `mimo`, `mimo-omni`, and `mimo-pro` remain working short aliases.
 /// * The short `mimo-v2.5*` ids are intentionally excluded because v2 rejects
 ///   them without a provider; their `xiaomi/`-qualified forms work.
@@ -67,71 +72,96 @@ pub fn known_models() -> Vec<ModelInfo> {
             id: "xiaomi/mimo".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "multimodal (text+vision+tools+thinking, 1M ctx, 128K out) [upstream: mimo]"
+            family: "client preset: text+vision+tools+thinking, 1M ctx, 128K out [upstream: mimo]"
                 .into(),
         },
         ModelInfo {
             id: "xiaomi/mimo-pro".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "reasoning (text+tools+thinking, 1M ctx, 128K out) [upstream: mimo-pro]".into(),
+            family: "official: text+tools+thinking+structured output, 1M ctx, 128K out [upstream: mimo-v2.5-pro, verified 2026-09-26]".into(),
+        },
+        // Explicit versioned routes verified through the OpenWrt bridge.
+        ModelInfo {
+            id: "xiaomi/mimo-v2.6-flash".into(),
+            object: "model".into(),
+            owned_by: "xiaomi".into(),
+            family: "official: text+image+video+audio+tools+thinking+structured output, 1M ctx, 128K out [upstream: mimo-v2.6-flash]".into(),
+        },
+        ModelInfo {
+            id: "xiaomi/mimo-v2.6-pro".into(),
+            object: "model".into(),
+            owned_by: "xiaomi".into(),
+            family: "official: text+image+video+audio+tools+thinking+structured output, 1M ctx, 128K out [upstream: mimo-v2.6-pro]".into(),
+        },
+        ModelInfo {
+            id: "deepseek/deepseek-v4-flash".into(),
+            object: "model".into(),
+            owned_by: "deepseek".into(),
+            family: "official API alias (V4.1 Flash): text+vision+tools+thinking+JSON, 1M ctx, 384K out [upstream: deepseek-v4-flash; channel version unconfirmed]".into(),
+        },
+        ModelInfo {
+            id: "deepseek/deepseek-v4-pro".into(),
+            object: "model".into(),
+            owned_by: "deepseek".into(),
+            family: "official: text+tools+thinking+JSON, 1M ctx, 384K out [upstream: deepseek-v4-pro]".into(),
         },
         ModelInfo {
             id: "xiaomi/mimo-v2.5".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "provider-qualified v2.5 model [upstream: mimo-v2.5]".into(),
+            family: "official: text+image+video+audio+tools+thinking+structured output, 1M ctx, 128K out [upstream: mimo-v2.5]".into(),
         },
         ModelInfo {
             id: "xiaomi/mimo-v2.5-pro".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "provider-qualified v2.5 reasoning model [upstream: mimo-v2.5-pro]".into(),
+            family: "official: text+tools+thinking+structured output, 1M ctx, 128K out [upstream: mimo-v2.5-pro]".into(),
         },
         // ── Legacy provider-qualified ids still accepted by v2 ─────────────
         ModelInfo {
             id: "xiaomi/mimo-claw-0301".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "legacy reasoning snapshot [upstream: mimo-pro]".into(),
+            family: "legacy client preset: text+tools+thinking, 256K ctx, 128K out [upstream: mimo-pro]".into(),
         },
         ModelInfo {
             id: "xiaomi/MiniMax-M2.5".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "general (text+tools, 128K ctx, 8K out) [upstream: MiniMax-M2.5]".into(),
+            family: "official: text+tools+thinking, 204800 ctx, output ceiling not specified [upstream: MiniMax-M2.5]".into(),
         },
         ModelInfo {
             id: "xiaomi/kimi-k2.5".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "reasoning (text+tools+thinking, 128K ctx, 8K out) [upstream: kimi-k2.5]"
+            family: "official: text+image+video (experimental)+tools+thinking, 256K ctx, output <= 262144 minus input tokens [upstream: kimi-k2.5]"
                 .into(),
         },
         ModelInfo {
             id: "xiaomi/glm-5".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "general (text+tools, 128K ctx, 8K out) [upstream: glm-5]".into(),
+            family: "official: text+tools+thinking+structured output, 200K ctx, 128K out [upstream: glm-5]".into(),
         },
         // ── Short aliases accepted by the upstream router ──────────────────
         ModelInfo {
             id: "mimo".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "alias → xiaomi/mimo [upstream: mimo]".into(),
+            family: "client preset: text+vision+tools+thinking, 1M ctx, 128K out [alias: xiaomi/mimo; upstream: mimo]".into(),
         },
         ModelInfo {
             id: "mimo-omni".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "alias → xiaomi/mimo [upstream: mimo]".into(),
+            family: "client preset: text+vision+tools+thinking, 1M ctx, 128K out [alias: xiaomi/mimo; upstream: mimo]".into(),
         },
         ModelInfo {
             id: "mimo-pro".into(),
             object: "model".into(),
             owned_by: "xiaomi".into(),
-            family: "alias → xiaomi/mimo-pro [upstream: mimo-pro]".into(),
+            family: "client preset: text+tools+thinking, 1M ctx, 128K out [alias: xiaomi/mimo-pro; upstream: mimo-pro]".into(),
         },
     ]
 }

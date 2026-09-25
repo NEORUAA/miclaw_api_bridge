@@ -224,7 +224,9 @@ onMounted(refreshAll);
       <p class="section-number">05</p>
       <div>
         <h2>可用模型</h2>
-        <p>以下模型已在超级小爱 PC v2 通道验证。</p>
+        <p>以下为超级小爱 PC v2 通道中已验证模型的静态列表，并非完整清单。</p>
+        <p>请求中的 <code>model</code> 会直接透传，列表里没有不代表不能调用；是否可用由上游及账号权限决定。</p>
+        <p>能力与长度采用模型官方规格（别名预设另有标注）；实际通道支持情况可能不同。</p>
       </div>
     </div>
     <div class="model-table">

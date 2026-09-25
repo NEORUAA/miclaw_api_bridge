@@ -22,28 +22,51 @@ miclaw_api_bridge logs into your Xiaomi account using the migrated **Xiaomi Hype
 - `POST /v1/chat/completions` — OpenAI Chat Completions (drop-in for Cline, Cherry Studio, OpenAI SDKs, …)
 - `POST /v1/responses` — OpenAI Responses API (native passthrough when available, Chat Completions compatibility fallback otherwise)
 - `POST /v1/messages` — Anthropic Messages, with full SSE event translation (drop-in for Claude Code and any client honoring `ANTHROPIC_BASE_URL`)
-- `GET /v1/models` — the eleven verified model ids
+- `GET /v1/models` — a static discovery catalog of known model ids, not an allowlist
 - `GET /api/quota` — current membership and official remaining-points snapshot (WebUI control plane)
 
 > ⚠️ **Account requirement**: the upstream service enforces the Super XiaoAI quota associated with your Xiaomi account. An exhausted or ineligible account can still authenticate but cannot complete model requests.
 
-Eleven model ids are exposed through the migrated Xiaomi PC v2 channel. They were verified with minimal live `/chat/completions` probes on 2026-09-03; the two short `mimo-v2.5*` forms are omitted because the upstream now requires the `xiaomi/` provider prefix for those models.
+The static catalog contains 15 model ids. The original eleven entries were verified with minimal live `/chat/completions` probes on 2026-09-03. MiMo v2.6 Flash / Pro and DeepSeek v4 Flash / Pro were additionally verified through an OpenWrt bridge on 2026-09-26, each returning HTTP 200 and the corresponding response `model`. These new probes verify basic text chat only; tools, multimodal inputs, and context/output limits were not tested.
+
+> **Model passthrough**: The request's `model` is forwarded verbatim. This list is not an allowlist or a complete upstream catalog: **a model missing from the list may still be callable**. You can enter its full model id manually; the upstream service and your account permissions determine availability. Neither `/v1/models` nor the WebUI model list dynamically discovers upstream models.
+
+Capabilities and token limits below use the linked official model/API specifications, checked on 2026-09-26. They describe the provider's API, not guaranteed limits of the Super XiaoAI channel. Capabilities summarize input modalities, tool calling, thinking, and structured output; see the sources for additional API features. Unversioned/legacy routes without a matching public model specification are explicitly marked as client presets.
 
 | Model id | Upstream | Capabilities | Context | Max Output | Notes |
 |---|---|---|---|---|---|
-| `xiaomi/mimo` | `mimo` | text, vision, tools, thinking | 1M | 128K | Official multimodal route |
-| `xiaomi/mimo-pro` | `mimo-pro` | text, tools, thinking | 1M | 128K | Official default reasoning route |
-| `xiaomi/mimo-v2.5` | `mimo-v2.5` | text, tools | — | — | Provider-qualified v2.5 route |
-| `xiaomi/mimo-v2.5-pro` | `mimo-v2.5-pro` | text, tools, thinking | — | — | Provider-qualified v2.5 reasoning route |
-| `xiaomi/mimo-claw-0301` | `mimo-pro` | text, tools, thinking | 256K | 128K | Claw 0301 reasoning snapshot |
-| `xiaomi/MiniMax-M2.5` | `MiniMax-M2.5` | text, tools | 128K | 8K | MiniMax M2.5 |
-| `xiaomi/kimi-k2.5` | `kimi-k2.5` | text, tools, thinking | 128K | 8K | Kimi K2.5 reasoning |
-| `xiaomi/glm-5` | `glm-5` | text, tools | 128K | 8K | GLM-5 |
-| `mimo` | `mimo` | — | — | — | Alias → `xiaomi/mimo` |
-| `mimo-omni` | `mimo` | — | — | — | Alias → `xiaomi/mimo` |
-| `mimo-pro` | `mimo-pro` | — | — | — | Alias → `xiaomi/mimo-pro` |
+| `xiaomi/mimo` | `mimo` | text, vision, tools, thinking | 1M | 128K | Client preset; unversioned multimodal route |
+| `xiaomi/mimo-pro` | `mimo-v2.5-pro` | text, tools, thinking, structured output | 1M | 128K | Default route; returned v2.5 Pro on 2026-09-26; [official specs][mimo-v25-pro] |
+| `xiaomi/mimo-v2.6-flash` | `mimo-v2.6-flash` | text, image, video, audio, tools, thinking, structured output | 1M | 128K | [Official specs][mimo-v26-flash]; text chat verified 2026-09-26 |
+| `xiaomi/mimo-v2.6-pro` | `mimo-v2.6-pro` | text, image, video, audio, tools, thinking, structured output | 1M | 128K | [Official specs][mimo-v26-pro]; text chat verified 2026-09-26 |
+| `deepseek/deepseek-v4-flash` | `deepseek-v4-flash` | text, vision, tools, thinking, JSON | 1M | 384K | [Official API alias specs][deepseek-specs]; currently V4.1 Flash on DeepSeek's API, see note below |
+| `deepseek/deepseek-v4-pro` | `deepseek-v4-pro` | text, tools, thinking, JSON | 1M | 384K | [Official specs][deepseek-specs]; text chat verified 2026-09-26 |
+| `xiaomi/mimo-v2.5` | `mimo-v2.5` | text, image, video, audio, tools, thinking, structured output | 1M | 128K | [Official specs][mimo-v25] |
+| `xiaomi/mimo-v2.5-pro` | `mimo-v2.5-pro` | text, tools, thinking, structured output | 1M | 128K | [Official specs][mimo-v25-pro] |
+| `xiaomi/mimo-claw-0301` | `mimo-pro` | text, tools, thinking | 256K | 128K | Legacy client preset; no public specification for this route id |
+| `xiaomi/MiniMax-M2.5` | `MiniMax-M2.5` | text, tools, thinking | 204,800 | Not specified | [Official context and capabilities][minimax-specs]; current [output parameter docs][minimax-output] do not state an M2.5-specific ceiling |
+| `xiaomi/kimi-k2.5` | `kimi-k2.5` | text, image, video, tools, thinking | 256K | 262,144 minus input tokens | [Official capabilities][kimi-specs] and [output budget][kimi-output]; video input is experimental |
+| `xiaomi/glm-5` | `glm-5` | text, tools, thinking, structured output | 200K | 128K | [Official specs][glm-specs] |
+| `mimo` | `mimo` | text, vision, tools, thinking | 1M | 128K | Client preset; alias → `xiaomi/mimo` |
+| `mimo-omni` | `mimo` | text, vision, tools, thinking | 1M | 128K | Client preset; alias → `xiaomi/mimo` |
+| `mimo-pro` | `mimo-pro` | text, tools, thinking | 1M | 128K | Client preset; alias → `xiaomi/mimo-pro` |
 
-> **Upstream mapping**: The "Upstream" column shows the canonical model name returned by the mify backend. For example, `xiaomi/mimo-claw-0301` is routed to `mimo-pro` upstream. The bridge passes `model` through verbatim; the upstream router handles canonicalization.
+[mimo-v26-flash]: https://mimo.mi.com/models/en-US/mimo-v2.6-flash
+[mimo-v26-pro]: https://mimo.mi.com/models/en-US/mimo-v2.6-pro
+[mimo-v25]: https://mimo.mi.com/models/en-US/mimo-v2.5
+[mimo-v25-pro]: https://mimo.mi.com/models/en-US/mimo-v2.5-pro
+[deepseek-specs]: https://api-docs.deepseek.com/quick_start/pricing/
+[minimax-specs]: https://platform.minimax.io/docs/api-reference/text-anthropic-api
+[minimax-output]: https://platform.minimax.io/docs/api-reference/text-post
+[kimi-specs]: https://github.com/MoonshotAI/Kimi-K2.5
+[kimi-output]: https://www.kimi.ai/help/kimi-api/api-troubleshooting
+[glm-specs]: https://docs.z.ai/guides/llm/glm-5
+
+> **DeepSeek Flash alias**: DeepSeek's [official API documentation][deepseek-specs] now routes `deepseek-v4-flash` to V4.1 Flash, whose published specifications are shown above. Our Super XiaoAI probe returned the name `deepseek-v4-flash`; that response alone does not confirm the same backend version or vision support on this channel. V4 Pro remains a separate text-only model in the official API.
+
+> **Upstream mapping**: The "Upstream" column records the response `model` observed during the probes, not a permanently pinned version. Alias mappings and availability can change. Use an explicit `xiaomi/mimo-v2.6-flash` or `xiaomi/mimo-v2.6-pro` id to select v2.6.
+
+> **Provider prefixes**: DeepSeek v4 ids without a prefix were rejected as missing a provider; using `xiaomi/` instead of `deepseek/` was also rejected. The bare `xiaomi/mimo-v2.6` id is unavailable; use `-flash` or `-pro`. Short `mimo-v2.5*` ids are omitted because the upstream requires the `xiaomi/` prefix for those models.
 
 > **Note**: The client also defines two on-device models (`mimo_vlm`, `vlm` / Qwen3 0.7B) that run locally via the 太一 SDK. These are not exposed through the cloud API bridge.
 
