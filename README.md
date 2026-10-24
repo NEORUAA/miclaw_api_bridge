@@ -350,6 +350,8 @@ A 401 from any mimo call triggers a transparent re-run of steps 2–3.
 | Disable OS keyring | env `MICLAW_API_BRIDGE_DISABLE_KEYRING=1` | off |
 | Session storage | OS keyring (auto) | n/a |
 
+JSON request bodies on `/v1` proxy endpoints can be up to **32 MiB**, including messages, tools, and inline image data. Management endpoints under `/api` retain the **2 MiB** default limit.
+
 ## FAQ
 
 **Is this a fork of miclaw?**

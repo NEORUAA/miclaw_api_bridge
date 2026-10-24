@@ -2,7 +2,7 @@ use crate::auth::login::LoginRequest;
 use crate::error::{BridgeError, Result};
 use crate::service::{SendTicketRequest, SetPortRequest, VerifyTicketRequest};
 use crate::state::BridgeState;
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -20,6 +20,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::cors::CorsLayer;
+
+const PROXY_BODY_LIMIT: usize = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
@@ -223,6 +225,7 @@ pub fn router(state: Arc<BridgeState>) -> Router {
             state.clone(),
             api_key_guard,
         ))
+        .layer(DefaultBodyLimit::max(PROXY_BODY_LIMIT))
         .with_state(state.proxy.clone());
 
     Router::new()
@@ -630,6 +633,88 @@ mod tests {
     use super::*;
     use crate::state::BridgeState;
     use crate::storage::Storage;
+    use axum::body::Body;
+    use axum::http::Request;
+    use bytes::Bytes;
+    use tower::ServiceExt;
+
+    fn padded_json(value: serde_json::Value, len: usize) -> Bytes {
+        let mut body = serde_json::to_vec(&value).unwrap();
+        assert!(body.len() <= len);
+        body.resize(len, b' ');
+        Bytes::from(body)
+    }
+
+    async fn post_json(app: &Router, path: &str, body: Bytes) -> Response {
+        app.clone()
+            .oneshot(
+                Request::post(path)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn proxy_body_limit_accepts_large_json_and_preserves_admin_limit() {
+        const ADMIN_BODY_LIMIT: usize = 2 * 1024 * 1024;
+        let base = std::env::temp_dir().join(format!(
+            "mb-body-limit-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let storage = Storage::for_paths(base.join("c"), base.join("d")).unwrap();
+        let state =
+            BridgeState::with_storage_and_auth(storage, crate::auth::AuthState::default()).unwrap();
+        let app = router(state);
+        let request = json!({
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "hello"}],
+            "input": "hello",
+            "max_tokens": 1,
+        });
+        let large_body = padded_json(request.clone(), ADMIN_BODY_LIMIT + 1);
+        let oversized_body = padded_json(request.clone(), PROXY_BODY_LIMIT + 1);
+
+        for path in ["/v1/chat/completions", "/v1/responses", "/v1/messages"] {
+            // Reaching the unauthenticated handler proves JSON extraction passed,
+            // without making an upstream request or loading a stored account.
+            let response = post_json(&app, path, large_body.clone()).await;
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
+
+            let response = post_json(&app, path, oversized_body.clone()).await;
+            assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE, "{path}");
+        }
+
+        let response = post_json(
+            &app,
+            "/v1/chat/completions",
+            padded_json(request, PROXY_BODY_LIMIT),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = post_json(
+            &app,
+            "/api/settings/port",
+            padded_json(json!({"port": 8765}), ADMIN_BODY_LIMIT),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = post_json(
+            &app,
+            "/api/settings/port",
+            padded_json(json!({"port": 8765}), ADMIN_BODY_LIMIT + 1),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+        drop(app);
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     /// After `shutdown_and_wait`, the listener is released so a new server can
     /// bind the exact same port — the basis for the desktop TLS toggle.
